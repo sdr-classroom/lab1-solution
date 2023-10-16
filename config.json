@@ -1,0 +1,1 @@
+{"debug": true, "port": 3333, "users": [{"username": "jessie", "debts": [{"username": "blake", "amount": 30}, {"username": "ollie", "amount": 0}]}, {"username": "blake", "debts": [{"username": "jessie", "amount": 0}, {"username": "ollie", "amount": 5}]}, {"username": "ollie", "debts": [{"username": "jessie", "amount": 10}, {"username": "blake", "amount": 0}]}]}

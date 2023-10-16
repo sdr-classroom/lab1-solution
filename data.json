@@ -1,0 +1,35 @@
+{
+    "manifs": [
+        {
+            "name": "Manif 1",
+            "organizer": "Jean",
+            "postes": [
+                {
+                    "name": "Poste 1",
+                    "capacity": 3,
+                    "registered": [
+                        "Jean",
+                        "Stephane"
+                    ]
+                }
+            ]
+        }
+    ],
+    "users": [
+        {
+            "name": "Jean",
+            "password": "naej",
+            "isOrganizer": true
+        },
+        {
+            "name": "Stephane",
+            "password": "enahpets",
+            "isOrganizer": false
+        },
+        {
+            "name": "Sylvie",
+            "password": "eivlys",
+            "isOrganizer": true
+        }
+    ]
+}

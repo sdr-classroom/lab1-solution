@@ -1,0 +1,6 @@
+get debts blake
+get credits jessie
+get debts blake
+get debts jessie
+get debts ollie
+exit

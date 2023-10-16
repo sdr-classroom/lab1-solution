@@ -1,0 +1,48 @@
+{
+ "Events": [
+  {
+   "Name": "Manif 1",
+   "Organizer": "Jean",
+   "Postes": [
+    {
+     "Name": "Poste 1",
+     "Capacity": 3,
+     "Registered": [
+      "Jean",
+      "Stephane"
+     ]
+    }
+   ]
+  },
+  {
+   "Name": "Internally created manif",
+   "Organizer": "Jean",
+   "Postes": [
+    {
+     "Name": "Internall created poste",
+     "Capacity": 4,
+     "Registered": [
+      "Jeanette"
+     ]
+    }
+   ]
+  }
+ ],
+ "Users": [
+  {
+   "Name": "Jean",
+   "Password": "naej",
+   "IsOrganizer": true
+  },
+  {
+   "Name": "Stephane",
+   "Password": "enahpets",
+   "IsOrganizer": false
+  },
+  {
+   "Name": "Sylvie",
+   "Password": "eivlys",
+   "IsOrganizer": true
+  }
+ ]
+}
