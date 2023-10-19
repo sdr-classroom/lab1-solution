@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -70,17 +71,25 @@ func StartClient(user common.Username, port string) {
 }
 
 func sendPayRequest(args []string, currentUser common.Username, encoder *gob.Encoder, decoder *gob.Decoder) {
-	if len(args) < 2 {
+	if len(args) < 3 {
 		fmt.Println("Not enough arguments for pay command")
 		return
+	} else if args[1] != "for" {
+		fmt.Println("Invalid syntax for pay command. Missing `for` keyword")
+		return
 	}
+
 	payer := currentUser
 	amount, err := strconv.ParseFloat(args[0], 32)
 	if err != nil {
 		fmt.Println("Invalid amount for pay command")
 		return
 	}
-	payeesRaw := args[1:]
+
+	payeesConcatted := strings.Join(args[2:], " ")
+	re := regexp.MustCompile(` *, +`)
+	payeesRaw := re.Split(payeesConcatted, -1)
+
 	payees := make([]common.Username, len(payeesRaw))
 	for i, payeeRaw := range payeesRaw {
 		payees[i] = common.Username(payeeRaw)

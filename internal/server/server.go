@@ -80,15 +80,13 @@ func handleConn(conn net.Conn, requestHandlerChan chan request) {
 			break
 		}
 
-		logger.Info("Received a message : ", msg)
+		logger.Info("Received a message : ", msg, reflect.TypeOf(msg))
 
-		logger.Info("Sending it to the manager")
 		requestHandlerChan <- request{message: msg, responseChan: responses}
 
-		logger.Info("Waiting for response")
 		msg = <-responses
 
-		logger.Info("Sending response back to client")
+		logger.Info("Sending response back to client:", msg, reflect.TypeOf(msg))
 		err = encoder.Encode(&msg)
 		if err != nil {
 			logger.Fatal("Failure in encoding message", msg, err)
@@ -102,29 +100,24 @@ type request struct {
 }
 
 func handleRequests(requests chan request, graph Graph) {
-	logger := common.GetGlobalLogger()
+	//logger := common.GetGlobalLogger()
 
 	for req := range requests {
-		logger.Info("Handling request", req.message, reflect.TypeOf(req.message))
 		switch req.message.(type) {
 		case messages.GetRequest:
 			request := req.message.(messages.GetRequest)
-			logger.Warning("Received a get request", request)
 			switch req.message.(messages.GetRequest).GetType {
 			case messages.Debts:
 				msg := messages.GetResponse{Debts: graph.GetDebts(request.Username)}
-				logger.Warning(graph)
 				req.responseChan <- msg
 			case messages.Credits:
 				req.responseChan <- messages.GetResponse{Debts: graph.GetCredits(request.Username)}
 			}
 		case messages.PayRequest:
-			logger.Warning("Received a pay request")
 			request := req.message.(messages.PayRequest)
 			graph.Pay(request.Source, request.Receivers, request.Amount)
 			req.responseChan <- messages.PayResponse{Success: true}
 		default:
-			logger.Warning("Received an unknown request")
 			req.responseChan <- messages.ErrorResponse{Message: "Unknown request type : " + reflect.TypeOf(req.message).String()}
 		}
 	}

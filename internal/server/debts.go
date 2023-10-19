@@ -1,6 +1,8 @@
 package server
 
 import (
+	"fmt"
+
 	"github.com/olivierlmr/SDR23F/lab1/internal/common"
 )
 
@@ -18,11 +20,20 @@ type Graph map[common.Username]Debts
 func (g Graph) Pay(owedUser common.Username, owingUsers []common.Username, amount float32) {
 	logger := common.GetGlobalLogger()
 
+	// Remove owed from owing users
+	for i := 0; i < len(owingUsers); i++ {
+		if owingUsers[i] == owedUser {
+			owingUsers[i] = owingUsers[len(owingUsers)-1]
+			owingUsers = owingUsers[:len(owingUsers)-1]
+			break
+		}
+	}
+
 	amountPerOwing := amount / float32(len(owingUsers))
 	for _, owingUser := range owingUsers {
 		owingUserDebts, ok := g[owingUser]
 		if !ok {
-			logger.Fatal("owing user not found: " + owingUser)
+			logger.Fatal("owing user not found: " + string(owingUser) + " graph is " + fmt.Sprint(g))
 		}
 		if owingUser == owedUser {
 			logger.Info("user", owingUser, "is paying himself")
@@ -53,7 +64,7 @@ func (g Graph) GetCredits(requestedUser common.Username) Credits {
 }
 
 func (g Graph) SimplifyGraph() {
-	logger := common.GetGlobalLogger()
+	//logger := common.GetGlobalLogger()
 
 	// Compute the total amount owed by each user
 	owedAmounts := make(map[common.Username]float32)
@@ -64,14 +75,10 @@ func (g Graph) SimplifyGraph() {
 
 	for owingUser, debts := range g {
 		for owedUser, amount := range debts {
-			logger.Info(owingUser, "owes", owedUser, amount)
 			owedAmounts[owingUser] += amount
 			owedAmounts[owedUser] -= amount
-			logger.Info(owingUser, "owes", owedUser, amount, "; total owed by", owingUser, ":", owedAmounts[owingUser], "; total owed by", owedUser, ":", owedAmounts[owedUser])
 		}
 	}
-
-	logger.Info("owedAmounts", owedAmounts)
 
 	// Remove all edges of the graph
 	for user := range g {
