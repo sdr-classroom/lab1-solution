@@ -30,6 +30,7 @@ func parseConfig(config Config) Graph {
 			graph[user.Username][debt.Username] = debt.Amount
 		}
 	}
+	graph.SimplifyGraph()
 	return graph
 }
 

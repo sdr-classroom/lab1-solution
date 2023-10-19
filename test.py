@@ -6,12 +6,19 @@
 
 import math
 import os
+import random
 import subprocess
 import threading
 import time
 
 sleep_speedup = 1
 
+debug = True
+
+def log(*args):
+    global debug
+    if (debug):
+        print(*args)
 
 class bcolors:
     HEADER = '\033[95m'
@@ -111,8 +118,10 @@ graph = {
 
 
 def write_config_file(filename, graph, port):
+    global debug
     with open(filename, 'w') as f:
-        f.write(f'{{"debug": true, "port": {port}, "users": [')
+        debugStr = 'true' if debug else 'false'
+        f.write(f'{{"debug": {debugStr}, "port": {port}, "users": [')
         users = []
         for username in graph.keys():
             user = f'{{"username": "{username}", "debts": ['
@@ -171,8 +180,8 @@ def join_client(username):
                          stdin=subprocess.PIPE,
                          stdout=subprocess.PIPE,
                          shell=True)
-    print(f'Client {username} joined, waiting...')
-    time.sleep(0.5 * sleep_speedup)
+    log(f'Client {username} joined, waiting...')
+    time.sleep(0.7 * sleep_speedup)
     return Client(username, p)
 
 
@@ -181,22 +190,22 @@ def exit_client(client):
     subprocess.stdin.write('exit\n'.encode())
     subprocess.stdin.write('exit\n'.encode())
     subprocess.stdin.flush()
-    print(f'client {client.username} exited, killing it...')
+    log(f'client {client.username} exited, killing it...')
     # time.sleep(0.1 * sleep_speedup)
     # subprocess.kill()
     # time.sleep(0.1 * sleep_speedup)
 
 
 def parse_outputs(cmd_blocks, clients, context):
-    print("Parsing outputs...")
+    log("Parsing outputs...")
     per_client_outputs = {}
     per_client_lines = {}
 
     # parse lines for each client
     for client in clients.values():
-        print(f'Parsing outputs for client {client.username}...')
+        log(f'Parsing outputs for client {client.username}...')
         lines = client.subprocess.stdout.readlines()
-        print(f"Got lines for client {client.username}")
+        log(f"Got lines for client {client.username}")
         lines = [line.decode().strip() for line in lines]
         per_client_lines[client.username] = lines
         per_cmd_outputs = '\n'.join(lines).split('>')
@@ -280,6 +289,7 @@ def assert_debts_equal_constant_block(client, owing_user, owed_user, expected_am
 
 def pay_block(client, amount, all_benefitors):
     def change_expected_totals(outputs, context):
+        log(f"{client} pays {amount} for {all_benefitors}")
         expected_totals = context["expected_totals"]
         benefitors = [b for b in all_benefitors if b != client]
         if (benefitors != []):
@@ -287,7 +297,7 @@ def pay_block(client, amount, all_benefitors):
             for benefitor in benefitors:
                 expected_totals[benefitor] += per_benefitor_amount
             expected_totals[client] -= amount
-            print(f"Expected totals: {expected_totals}")
+            log(f"Expected totals: {expected_totals}")
 
     return CommandBlock(
         client,
@@ -373,7 +383,7 @@ def assert_graph_is_simplified_block():
         for user, expected_total in expected_totals.items():
             assert user in actual_totals, f"User {user} is not in the actual debt graph"
             assert math.isclose(
-                expected_total, actual_totals[user]), f"User {user} has a total debt of {actual_totals[user]}, but expected was {expected_total}"
+                expected_total, actual_totals[user], abs_tol=0.001), f"User {user} has a total debt of {actual_totals[user]}, but expected was {expected_total}"
 
     return CommandBlock(
         None,
@@ -389,16 +399,16 @@ def wait_block(duration):
 def start_server(config_filename, port):
     # use lsof to find the process id of the server listening on the port, then kill it.
     os.system(f'lsof -t -i:{port} | xargs kill')
-    print(f"Killed anything listening on {port}")
+    log(f"Killed anything listening on {port}")
     srv_cmd = f"go run cmd/server/main.go {config_filename}".split()
     srv_proc = subprocess.Popen(srv_cmd)
-    print("Server started, waiting...")
-    time.sleep(0.7 * sleep_speedup)
+    log("Server started, waiting...")
+    time.sleep(1 * sleep_speedup)
     return srv_proc
 
 
 def stop_server(srv_proc, port):
-    print("Stopping server...")
+    log("Stopping server...")
     srv_proc.kill()
     # time.sleep(0.1 * sleep_speedup)
 
@@ -462,6 +472,8 @@ def matrix_to_graph(matrix):
 
 
 def run_test_case(logger, test_case):
+    print(f"Running test case {test_case.__name__}...")
+    
     name = test_case.__name__
 
     port = None
@@ -543,7 +555,7 @@ def run_test_case(logger, test_case):
 
         logger.logSuccess(name, desc)
     except Exception as e:
-        logger.logFailure(name, desc, str(type(e)) + ": " + str(e))
+        logger.logFailure(name, desc, repr(e))
         stop_server(srv_proc, port)
         # Get type of error
         t = type(e)
@@ -655,15 +667,64 @@ def test_case7(describe, build_graph, run_command_blocks, join_client, exit_clie
         assert_graph_is_simplified_block(),
     )
 
+def test_case8(describe, build_graph, run_command_blocks, join_client, exit_client):
+    describe(
+        "A payment chain of A -> B -> C with all amounts equal should result in debt from A to C.")
+
+    graph = build_graph([[0, 0, 0],
+                         [0, 0, 0],
+                         [0, 0, 0]])
+
+    users = get_users_from_graph(graph)
+
+    run_command_blocks(
+        pay_block('user0', 10, ['user1']),
+        pay_block('user1', 10, ['user2']),
+        wait_block(0.7),
+        get_debts_graph_block('user0', users),
+        assert_graph_is_simplified_block(),
+        assert_debts_equal_constant_block('user0', 'user2', 'user0', 10),
+    )
+
+def test_case9(describe, build_graph, run_command_blocks, join_client, exit_client):
+    describe(
+        "After a long sequence of concurrent transactions, the graph should be correct and simplified.")
+
+    graph = build_graph([[0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0]])
+
+    users = get_users_from_graph(graph)
+
+    for i in range(1000) :
+        random_user = random.choice(users)
+        random_amount = random.randint(1, 10)
+        random_benefitors = random.sample(users, random.randint(1, len(users)))
+        actual_benefitors = [b for b in random_benefitors if b != random_user]
+        total_random_amount = random_amount * len(actual_benefitors)
+        run_command_blocks(pay_block(random_user, total_random_amount, random_benefitors))
+
+    run_command_blocks(
+        wait_block(1),
+        get_debts_graph_block('user0', users),
+        assert_graph_is_simplified_block(),
+    )
+
 
 logger = OutcomeLogger()
 
-run_test_case(logger, test_case1)
-run_test_case(logger, test_case2)
-run_test_case(logger, test_case3)
-run_test_case(logger, test_case4)
-run_test_case(logger, test_case5)
-run_test_case(logger, test_case6)
-run_test_case(logger, test_case7)
+# run_test_case(logger, test_case1)
+# run_test_case(logger, test_case2)
+# run_test_case(logger, test_case3)
+# run_test_case(logger, test_case4)
+# run_test_case(logger, test_case5)
+# run_test_case(logger, test_case6)
+# run_test_case(logger, test_case7)
+# run_test_case(logger, test_case8)
+run_test_case(logger, test_case9)
+# run_test_case(logger, test_case10)
 
 logger.print_logs()

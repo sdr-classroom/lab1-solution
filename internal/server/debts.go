@@ -45,15 +45,17 @@ func (g Graph) Pay(owedUser common.Username, owingUsers []common.Username, amoun
 			owingUserDebts[owedUser] += amountPerOwing
 		}
 	}
+
+	g.SimplifyGraph()
+
+	logger.Info("Graph after payment: ", g)
 }
 
 func (g Graph) GetDebts(user common.Username) Debts {
-	g.SimplifyGraph()
 	return g[user]
 }
 
 func (g Graph) GetCredits(requestedUser common.Username) Credits {
-	g.SimplifyGraph()
 	credits := make(Credits)
 	for owingUser, debts := range g {
 		if amount, ok := debts[requestedUser]; ok {
