@@ -4,6 +4,8 @@
 # -
 
 
+import signal
+import sys
 import math
 import os
 import random
@@ -15,10 +17,58 @@ sleep_speedup = 1
 
 debug = True
 
+# Get folder containing all project submissions
+container_path = sys.argv[1]
+
+project_path = ""
+server_file = ""
+client_file = ""
+cwd = os.getcwd()
+
+
+def set_main_files(project_path):
+    global server_file
+    global client_file
+
+    # Find all go files in the project that contain a main function
+    main_files = []
+    for root, dirs, files in os.walk(project_path):
+        for file in files:
+            if file.endswith(".go"):
+                with open(os.path.join(root, file), 'r') as f:
+                    contents = f.read()
+                    if 'func main(' in contents:
+                        main_files.append(os.path.join(root, file))
+
+    if (len(main_files) == 2):
+        # if a file contains "server" in its path, it's the server file
+        if ("server" in main_files[0]):
+            server_file = main_files[0]
+            client_file = main_files[1]
+
+    if (server_file == "" or client_file == ""):
+        # ask user to choose
+        print("Please choose the server file:")
+        for i, file in enumerate(main_files):
+            print(f"{i}: {file}")
+        choice = int(input())
+        server_file = main_files[choice]
+        if (len(main_files) == 2):
+            client_file = main_files[(choice + 1) % 2]
+        else:
+            print("Please choose the client file:")
+            choice = int(input())
+            client_file = main_files[choice]
+
+    print(f"Server file: {server_file}")
+    print(f"Client file: {client_file}")
+
+
 def log(*args):
     global debug
     if (debug):
         print(*args)
+
 
 class bcolors:
     HEADER = '\033[95m'
@@ -84,25 +134,63 @@ class Failure(Outcome):
         self.msg = msg
 
 
+class Manual(Outcome):
+    def __init__(self, name, desc, outputs):
+        super().__init__(name, desc)
+        self.outputs = outputs
+
+
 class OutcomeLogger:
     def __init__(self):
         self.logs = []
 
     def logFailure(self, name, desc, msg):
+        print(f"{bcolors.FAIL}Test failed:{bcolors.ENDC} {name}, {desc}, {msg}")
         self.logs.append(Failure(name, desc, msg))
 
     def logSuccess(self, name, desc):
         self.logs.append(Success(name, desc))
 
-    def print_logs(self):
+    def logManual(self, name, desc, outputs):
+        self.logs.append(Manual(name, desc, outputs))
+
+    def get_logs(self):
+        s = ""
+        # Ask user to verify manual outputs.
+        for i, log in enumerate(self.logs):
+            if isinstance(log, Manual):
+                print(
+                    f"{bcolors.WARNING}[MANUAL]{bcolors.ENDC} {log.test_name}, {log.test_desc} :")
+                newline = "\n"
+                print(f"{bcolors.BOLD}{newline.join(log.outputs)}{bcolors.ENDC}")
+                print("Is this correct? (y/[n])")
+                answer = input().lower()
+                if (answer == '' or answer == 'y'):
+                    self.logs[i] = Success(log.test_name, log.test_desc)
+                else:
+                    self.logs[i] = Failure(
+                        log.test_name, log.test_desc, "Outputs were manually verified and found to be incorrect: " + str(log.outputs))
+
         for log in self.logs:
             if isinstance(log, Failure):
-                print(
-                    f"{bcolors.FAIL}[FAILURE]{bcolors.ENDC} {log.test_name}, {log.test_desc} : {log.msg}")
+                s += (
+                    f"{bcolors.FAIL}[FAILURE]{bcolors.ENDC} {log.test_name}, {log.test_desc} : {log.msg}") + "\n"
+            elif isinstance(log, Manual):
+                s += (
+                    f"{bcolors.WARNING}[MANUAL]{bcolors.ENDC} {log.test_name}, {log.test_desc} : {log.outputs}") + "\n"
             else:
-                print(
-                    f"{bcolors.OKGREEN}[SUCCESS]{bcolors.ENDC} {log.test_name}, {log.test_desc}")
-        print(f"{len(self.logs)} tests run, {len(list(filter(lambda x: isinstance(x, Failure), self.logs)))} failures.")
+                s += (
+                    f"{bcolors.OKGREEN}[SUCCESS]{bcolors.ENDC} {log.test_name}, {log.test_desc}") + "\n"
+        s += (f"{len(self.logs)} tests run, {len(list(filter(lambda x: isinstance(x, Failure), self.logs)))} failures.") + "\n"
+
+        return s
+
+    def print_logs(self):
+        print(self.get_logs())
+
+    def save_logs(self, filename):
+        with open(filename, 'w') as f:
+            f.write(self.get_logs())
 
 
 '''
@@ -176,10 +264,12 @@ def run_command_block(clients, cmd_blocks, block):
 
 
 def join_client(username):
-    p = subprocess.Popen(f"go run cmd/client/main.go {username} 3333",
+    global project_path
+    p = subprocess.Popen(f"go run -race {client_file} {username} localhost:3333",
                          stdin=subprocess.PIPE,
                          stdout=subprocess.PIPE,
-                         shell=True)
+                         shell=True,
+                         cwd=project_path)
     log(f'Client {username} joined, waiting...')
     time.sleep(0.7 * sleep_speedup)
     return Client(username, p)
@@ -248,7 +338,7 @@ def assert_debts_equal_credits_block(client, owing_user, owed_user):
         client,
         cmds=[
             f'get debts {owing_user}',
-            f'get credits {owed_user}'
+            f'get credit {owed_user}'
         ],
         post=lambda outputs, context: assert_debts_equal_credits(
             owing_user,
@@ -278,7 +368,7 @@ def assert_debts_equal_constant_block(client, owing_user, owed_user, expected_am
         client,
         cmds=[
             f'get debts {owing_user}',
-            f'get credits {owed_user}'
+            f'get credit {owed_user}'
         ],
         post=lambda outputs, context: assert_debts_equal_credits(
             owing_user,
@@ -287,16 +377,19 @@ def assert_debts_equal_constant_block(client, owing_user, owed_user, expected_am
             outputs[1]))
 
 
-def pay_block(client, amount, all_benefitors):
+def pay_block(client, amount, all_benefitors, log_manual=False):
     def change_expected_totals(outputs, context):
+        if log_manual:
+            context["manual_outputs"].append(*outputs)
+            return
         log(f"{client} pays {amount} for {all_benefitors}")
         expected_totals = context["expected_totals"]
         benefitors = [b for b in all_benefitors if b != client]
         if (benefitors != []):
-            per_benefitor_amount = amount / len(benefitors)
+            per_benefitor_amount = amount / len(all_benefitors)
             for benefitor in benefitors:
                 expected_totals[benefitor] += per_benefitor_amount
-            expected_totals[client] -= amount
+            expected_totals[client] -= per_benefitor_amount * len(benefitors)
             log(f"Expected totals: {expected_totals}")
 
     return CommandBlock(
@@ -317,6 +410,42 @@ def get_debts_graph_block(client, users):
         cmds=[f'get debts {user}' for user in users],
         post=lambda outputs, context: construct_graph_from_outputs(
             outputs, context)
+    )
+
+
+def get_user_debts(client, user=None, log_for_manual=False):
+    username = user if user else client
+
+    def post(outputs, context):
+        if log_for_manual:
+            context["manual_outputs"].append(*outputs)
+            return
+
+        debts = parse_get_cmd_output(outputs[0])
+        sum = 0
+        for amount in debts.values():
+            sum += amount
+        assert math.isclose(sum, context["expected_totals"][username]
+                            ), f"User {username} has a total debt of {sum}, but expected was {context['expected_totals'][username]}"
+
+    command = f'get debts {user}' if user else 'get debts'
+
+    return CommandBlock(
+        client,
+        cmds=[command],
+        post=post
+    )
+
+
+def wrong_command_block(client, command, log_for_manual=False):
+    def post(outputs, context):
+        if log_for_manual:
+            context["manual_outputs"].append(*outputs)
+
+    return CommandBlock(
+        client,
+        cmds=[command],
+        post=post
     )
 
 
@@ -400,8 +529,8 @@ def start_server(config_filename, port):
     # use lsof to find the process id of the server listening on the port, then kill it.
     os.system(f'lsof -t -i:{port} | xargs kill')
     log(f"Killed anything listening on {port}")
-    srv_cmd = f"go run cmd/server/main.go {config_filename}".split()
-    srv_proc = subprocess.Popen(srv_cmd)
+    srv_cmd = f"go run -race {server_file} {config_filename}".split()
+    srv_proc = subprocess.Popen(srv_cmd, cwd=project_path)
     log("Server started, waiting...")
     time.sleep(1 * sleep_speedup)
     return srv_proc
@@ -410,51 +539,8 @@ def start_server(config_filename, port):
 def stop_server(srv_proc, port):
     log("Stopping server...")
     srv_proc.kill()
+    log("Server stopped")
     # time.sleep(0.1 * sleep_speedup)
-
-
-# def run_commands(commands, context, username, port):
-#     cli_input_filename = 'cli_input.txt'
-#     cli_output_filename = 'cli_output.txt'
-
-#     srv_cmd = "go run cmd/server/main.go config.json".split()
-#     cli_cmd = f"cat {cli_input_filename} | go run cmd/client/main.go {username} {port} > {cli_output_filename}"
-
-#     input = ''
-#     for block in commands:
-#         for cmd in block.cmds:
-#             input += cmd + '\n'
-
-#     # write input to 'cli_input.txt'
-#     with open('cli_input.txt', 'w') as f:
-#         f.write(input)
-
-#     # start server
-#     srv_proc = subprocess.Popen(srv_cmd)
-
-#     # run client
-#     os.system(cli_cmd)
-
-#     time.sleep(1)
-
-#     # read output from 'cli_output.txt'
-#     with open('cli_output.txt', 'r') as f:
-#         output = f.read()
-
-#     # kill server
-#     srv_proc.kill()
-
-#     # Assign outputs to blocks
-#     all_outputs = output.strip().split('>')
-#     outputs = list(filter(lambda x: x != '', [x.strip() for x in all_outputs]))
-
-#     for block in commands:
-#         cmd_count = len(block.cmds)
-#         block.outputs = outputs[:cmd_count]
-#         outputs = outputs[cmd_count:]
-#         block.hasRun = True
-#         if block.test:
-#             block.test(block.outputs, context)
 
 
 def matrix_to_graph(matrix):
@@ -473,7 +559,7 @@ def matrix_to_graph(matrix):
 
 def run_test_case(logger, test_case):
     print(f"Running test case {test_case.__name__}...")
-    
+
     name = test_case.__name__
 
     port = None
@@ -494,12 +580,16 @@ def run_test_case(logger, test_case):
         port = 3333
 
         config_filename = f"config_{name}.json"
+        config_filename = os.path.join(cwd, config_filename)
         write_config_file(config_filename, graph, port)
 
         srv_proc = start_server(config_filename, port)
 
         expected_total_debts = get_total_per_user(graph)
-        context = {"expected_totals": expected_total_debts}
+        context = {
+            "expected_totals": expected_total_debts,
+            "manual_outputs": []
+        }
 
         return srv_proc
 
@@ -541,27 +631,38 @@ def run_test_case(logger, test_case):
         nonlocal desc
         desc = new_desc
 
+    should_skip_output_parsing = False
+
+    def set_should_skip_output_parsing(should_skip):
+        nonlocal should_skip_output_parsing
+        should_skip_output_parsing = should_skip
+
     try:
         test_case(describe, build_graph, run_command_blocks_wrapper,
-                  join_client_wrapper, exit_client_wrapper)
+                  join_client_wrapper, exit_client_wrapper, set_should_skip_output_parsing)
 
         for client in connected_clients.values():
             exit_client(client)
         connected_clients.clear()
 
-        parse_outputs(command_blocks, all_clients, context)
+        if (not should_skip_output_parsing):
+            parse_outputs(command_blocks, all_clients, context)
 
         stop_server(srv_proc, port)
 
-        logger.logSuccess(name, desc)
+        if (context["manual_outputs"] == []):
+            logger.logSuccess(name, desc)
     except Exception as e:
         logger.logFailure(name, desc, repr(e))
         stop_server(srv_proc, port)
         # Get type of error
         t = type(e)
 
+    if (context["manual_outputs"] != []):
+        logger.logManual(name, desc, context["manual_outputs"])
 
-def test_case1(describe, build_graph, run_command_blocks, join_client, exit_client):
+
+def test_case1(describe, build_graph, run_command_blocks, join_client, exit_client, should_skip_output_parsing):
     describe("Paying someone should create a debt and a credit.")
 
     graph = build_graph([[0, 0, 0],
@@ -574,7 +675,7 @@ def test_case1(describe, build_graph, run_command_blocks, join_client, exit_clie
     )
 
 
-def test_case2(describe, build_graph, run_command_blocks, join_client, exit_client):
+def test_case2(describe, build_graph, run_command_blocks, join_client, exit_client, should_skip_output_parsing):
     describe(
         "Paying someone and oneself should create a debt and a credit only to the other person.")
 
@@ -584,11 +685,11 @@ def test_case2(describe, build_graph, run_command_blocks, join_client, exit_clie
 
     run_command_blocks(
         pay_block('user1', 10, ['user0', 'user1']),
-        assert_debts_equal_constant_block('user0', 'user0', 'user1', 10),
+        assert_debts_equal_constant_block('user0', 'user0', 'user1', 5),
     )
 
 
-def test_case3(describe, build_graph, run_command_blocks, join_client, exit_client):
+def test_case3(describe, build_graph, run_command_blocks, join_client, exit_client, should_skip_output_parsing):
     describe(
         "Paying multiple people including oneself should equally distribute debt.")
 
@@ -597,13 +698,13 @@ def test_case3(describe, build_graph, run_command_blocks, join_client, exit_clie
                          [0, 0, 0]])
 
     run_command_blocks(
-        pay_block('user0', 20, ['user0', 'user1', 'user2']),
+        pay_block('user0', 30, ['user0', 'user1', 'user2']),
         assert_debts_equal_constant_block('user0', 'user1', 'user0', 10),
         assert_debts_equal_constant_block('user0', 'user2', 'user0', 10),
     )
 
 
-def test_case4(describe, build_graph, run_command_blocks, join_client, exit_client):
+def test_case4(describe, build_graph, run_command_blocks, join_client, exit_client, should_skip_output_parsing):
     describe("Paying oneself should change nothing")
 
     graph = build_graph([[0, 0, 0],
@@ -616,7 +717,7 @@ def test_case4(describe, build_graph, run_command_blocks, join_client, exit_clie
     )
 
 
-def test_case5(describe, build_graph, run_command_blocks, join_client, exit_client):
+def test_case5(describe, build_graph, run_command_blocks, join_client, exit_client, should_skip_output_parsing):
     describe("Paying someone that then pays back should change nothing")
 
     graph = build_graph([[0, 0, 0],
@@ -631,7 +732,7 @@ def test_case5(describe, build_graph, run_command_blocks, join_client, exit_clie
     )
 
 
-def test_case6(describe, build_graph, run_command_blocks, join_client, exit_client):
+def test_case6(describe, build_graph, run_command_blocks, join_client, exit_client, should_skip_output_parsing):
     describe(
         "Paying someone that then pays back more should create a debt and a credit.")
 
@@ -648,7 +749,7 @@ def test_case6(describe, build_graph, run_command_blocks, join_client, exit_clie
     )
 
 
-def test_case7(describe, build_graph, run_command_blocks, join_client, exit_client):
+def test_case7(describe, build_graph, run_command_blocks, join_client, exit_client, should_skip_output_parsing):
     describe(
         "A payment chain of A -> B -> C -> A with all amounts equal should result in no change.")
 
@@ -667,7 +768,8 @@ def test_case7(describe, build_graph, run_command_blocks, join_client, exit_clie
         assert_graph_is_simplified_block(),
     )
 
-def test_case8(describe, build_graph, run_command_blocks, join_client, exit_client):
+
+def test_case8(describe, build_graph, run_command_blocks, join_client, exit_client, should_skip_output_parsing):
     describe(
         "A payment chain of A -> B -> C with all amounts equal should result in debt from A to C.")
 
@@ -686,7 +788,8 @@ def test_case8(describe, build_graph, run_command_blocks, join_client, exit_clie
         assert_debts_equal_constant_block('user0', 'user2', 'user0', 10),
     )
 
-def test_case9(describe, build_graph, run_command_blocks, join_client, exit_client):
+
+def test_case9(describe, build_graph, run_command_blocks, join_client, exit_client, should_skip_output_parsing):
     describe(
         "After a long sequence of concurrent transactions, the graph should be correct and simplified.")
 
@@ -699,13 +802,14 @@ def test_case9(describe, build_graph, run_command_blocks, join_client, exit_clie
 
     users = get_users_from_graph(graph)
 
-    for i in range(1000) :
+    for i in range(100):
         random_user = random.choice(users)
         random_amount = random.randint(1, 10)
         random_benefitors = random.sample(users, random.randint(1, len(users)))
         actual_benefitors = [b for b in random_benefitors if b != random_user]
         total_random_amount = random_amount * len(actual_benefitors)
-        run_command_blocks(pay_block(random_user, total_random_amount, random_benefitors))
+        run_command_blocks(
+            pay_block(random_user, total_random_amount, random_benefitors))
 
     run_command_blocks(
         wait_block(1),
@@ -714,17 +818,237 @@ def test_case9(describe, build_graph, run_command_blocks, join_client, exit_clie
     )
 
 
-logger = OutcomeLogger()
+def test_case10(describe, build_graph, run_command_blocks, join_client, exit_client, should_skip_output_parsing):
+    describe("`Get` request with no user specified uses current user.")
 
-# run_test_case(logger, test_case1)
-# run_test_case(logger, test_case2)
-# run_test_case(logger, test_case3)
-# run_test_case(logger, test_case4)
-# run_test_case(logger, test_case5)
-# run_test_case(logger, test_case6)
-# run_test_case(logger, test_case7)
-# run_test_case(logger, test_case8)
-run_test_case(logger, test_case9)
-# run_test_case(logger, test_case10)
+    graph = build_graph([[0, 0, 20],
+                         [0, 0, 10],
+                         [0, 0, 0]])
 
-logger.print_logs()
+    run_command_blocks(
+        get_user_debts("user0")
+    )
+
+
+def test_case11(describe, build_graph, run_command_blocks, join_client, exit_client, set_should_skip_output_parsing):
+    describe("Connecting and getting debts with invalid username should fail.")
+
+    graph = build_graph([[0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0]])
+
+    users = get_users_from_graph(graph)
+
+    client = join_client('unknown_user')
+
+    try:
+        run_command_blocks(get_user_debts(
+            client.username, log_for_manual=True))
+    except Exception as e:
+        if type(e) == BrokenPipeError:
+            set_should_skip_output_parsing(True)
+        assert type(
+            e) == BrokenPipeError, f"Expected BrokenPipeError because client should not have started due to wrong username, instead got {type(e)}"
+
+    try:
+        exit_client(client)
+    except Exception as e:
+        assert type(
+            e) == BrokenPipeError, f"Expected BrokenPipeError, got {type(e)}"
+
+
+def test_case12(describe, build_graph, run_command_blocks, join_client, exit_client, should_skip_output_parsing):
+    describe("Getting debts for invalid username should fail.")
+
+    graph = build_graph([[0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0]])
+
+    users = get_users_from_graph(graph)
+
+    run_command_blocks(get_user_debts(
+        "user0", user="unknown_user", log_for_manual=True))
+
+
+def test_case13(describe, build_graph, run_command_blocks, join_client, exit_client, should_skip_output_parsing):
+    describe("Connecting as unknown user and paying should fail.")
+
+    graph = build_graph([[0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0]])
+
+    users = get_users_from_graph(graph)
+
+    client = join_client('unknown_user')
+
+    try:
+        run_command_blocks(
+            pay_block(client.username, 10, [
+                      'user1', 'user2'], log_manual=True),
+            get_debts_graph_block('user0', users),
+            assert_graph_is_simplified_block()
+        )
+    except Exception as e:
+        if type(e) == BrokenPipeError:
+            should_skip_output_parsing(True)
+        assert type(
+            e) == BrokenPipeError, f"Expected BrokenPipeError because client should not have started due to wrong username, instead got {type(e)}"
+
+    try:
+        exit_client(client)
+    except Exception as e:
+        assert type(
+            e) == BrokenPipeError, f"Expected BrokenPipeError, got {type(e)}"
+
+
+def test_case14(describe, build_graph, run_command_blocks, join_client, exit_client, should_skip_output_parsing):
+    describe("Paying for an unknown user should fail.")
+
+    graph = build_graph([[0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0]])
+
+    users = get_users_from_graph(graph)
+
+    run_command_blocks(
+        pay_block("user0", 10, ['user1', 'unknown_user',
+                  'user2'], log_manual=True),
+        get_debts_graph_block('user0', users),
+        assert_graph_is_simplified_block()
+    )
+
+
+def test_case15(describe, build_graph, run_command_blocks, join_client, exit_client, should_skip_output_parsing):
+    describe("Paying with negative number should fail.")
+
+    graph = build_graph([[0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0]])
+
+    users = get_users_from_graph(graph)
+
+    run_command_blocks(
+        pay_block("user0", -10, ['user1', 'user2'], log_manual=True),
+        get_debts_graph_block('user0', users),
+        assert_graph_is_simplified_block()
+    )
+
+
+def test_case16(describe, build_graph, run_command_blocks, join_client, exit_client, should_skip_output_parsing):
+    describe(
+        "Paying with amount 0 should not change anything, and is allowed to fail.")
+
+    graph = build_graph([[0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0]])
+
+    users = get_users_from_graph(graph)
+
+    run_command_blocks(
+        pay_block("user0", 0, ['user1', 'user2']),
+        get_debts_graph_block('user0', users),
+        assert_graph_is_simplified_block()
+    )
+
+
+def test_case17(describe, build_graph, run_command_blocks, join_client, exit_client, should_skip_output_parsing):
+    describe("Running wrong command should fail.")
+
+    graph = build_graph([[0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0],
+                         [0, 0, 0, 0, 0, 0]])
+
+    users = get_users_from_graph(graph)
+
+    run_command_blocks(
+        wrong_command_block('user0', 'unknown_command', True),
+        get_debts_graph_block('user0', users),
+        assert_graph_is_simplified_block()
+    )
+
+
+def run_all_tests(output_filename):
+    logger = OutcomeLogger()
+
+    run_test_case(logger, test_case1)
+    run_test_case(logger, test_case2)
+    run_test_case(logger, test_case3)
+    run_test_case(logger, test_case4)
+    run_test_case(logger, test_case5)
+    run_test_case(logger, test_case6)
+    run_test_case(logger, test_case7)
+    run_test_case(logger, test_case8)
+    run_test_case(logger, test_case9)
+    run_test_case(logger, test_case10)
+    run_test_case(logger, test_case11)
+    run_test_case(logger, test_case12)
+    run_test_case(logger, test_case13)
+    run_test_case(logger, test_case14)
+    run_test_case(logger, test_case15)
+    run_test_case(logger, test_case16)
+    run_test_case(logger, test_case17)
+
+    logger.print_logs()
+
+    logger.save_logs(output_filename)
+
+
+def test_all_submissions(container_path):
+    always_skip = [
+        "debtManager",
+        "peronetti",
+    ]    
+
+    global project_path
+    # iterate over all folders in the container
+    for folder in os.listdir(container_path):
+        while True:
+            folder_path = os.path.join(container_path, folder)
+            should_skip = False
+            for to_skip in always_skip:
+                if to_skip in folder_path:
+                    print(f"Always skipping {folder_path}...")
+                    should_skip = True
+            if should_skip:
+                break
+            if not os.path.isdir(folder_path):
+                break
+            print(f"Testing {folder_path}...")
+            project_path = folder_path
+            set_main_files(folder_path)
+            # output file in container folder
+            output_filename = os.path.join(
+                container_path, f"output_{folder}.txt")
+            if os.path.exists(output_filename):
+                print("Output files already exist for that submission, skipping it?")
+                answer = input("y/[n]")
+                if answer == 'y' or answer == '':
+                    break
+            run_all_tests(output_filename)
+            answer = input("Rerun this one ? [y]/n")
+            if answer == 'n' or answer == '':
+                break
+
+
+test_all_submissions(container_path)

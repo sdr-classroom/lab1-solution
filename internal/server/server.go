@@ -107,6 +107,11 @@ func handleRequests(requests chan request, graph Graph) {
 		switch req.message.(type) {
 		case messages.GetRequest:
 			request := req.message.(messages.GetRequest)
+			username := request.Username
+			if _, ok := graph[username]; !ok {
+				req.responseChan <- messages.ErrorResponse{Message: "User " + string(username) + " not found"}
+				continue
+			}
 			switch req.message.(messages.GetRequest).GetType {
 			case messages.Debts:
 				msg := messages.GetResponse{Debts: graph.GetDebts(request.Username)}
@@ -116,7 +121,11 @@ func handleRequests(requests chan request, graph Graph) {
 			}
 		case messages.PayRequest:
 			request := req.message.(messages.PayRequest)
-			graph.Pay(request.Source, request.Receivers, request.Amount)
+			err := graph.Pay(request.Source, request.Receivers, request.Amount)
+			if err != nil {
+				req.responseChan <- messages.ErrorResponse{Message: err.Error()}
+				continue
+			}
 			req.responseChan <- messages.PayResponse{Success: true}
 		default:
 			req.responseChan <- messages.ErrorResponse{Message: "Unknown request type : " + reflect.TypeOf(req.message).String()}

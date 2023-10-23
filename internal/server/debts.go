@@ -17,7 +17,16 @@ type Credits map[common.Username]float32
 
 type Graph map[common.Username]Debts
 
-func (g Graph) Pay(owedUser common.Username, owingUsers []common.Username, amount float32) {
+func (g Graph) HasAllUsers(users []common.Username) bool {
+	for _, user := range users {
+		if _, ok := g[user]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func (g Graph) Pay(owedUser common.Username, owingUsers []common.Username, amount float32) error {
 	logger := common.GetGlobalLogger()
 
 	// Remove owed from owing users
@@ -27,6 +36,14 @@ func (g Graph) Pay(owedUser common.Username, owingUsers []common.Username, amoun
 			owingUsers = owingUsers[:len(owingUsers)-1]
 			break
 		}
+	}
+
+	if !g.HasAllUsers(append(owingUsers, owedUser)) {
+		return fmt.Errorf("some users are not in the graph")
+	}
+
+	if amount < 0 {
+		return fmt.Errorf("amount must be positive")
 	}
 
 	amountPerOwing := amount / float32(len(owingUsers))
@@ -49,6 +66,8 @@ func (g Graph) Pay(owedUser common.Username, owingUsers []common.Username, amoun
 	g.SimplifyGraph()
 
 	logger.Info("Graph after payment: ", g)
+
+	return nil
 }
 
 func (g Graph) GetDebts(user common.Username) Debts {

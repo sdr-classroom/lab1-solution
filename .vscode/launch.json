@@ -1,0 +1,12 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "test.py {cwd}",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/test.py",
+            "args": ["/Users/olemer/Documents/Code/HEIG-VD/SDR23F/labs/1-client-server-debt-manager-submissions"]
+        }
+    ]
+}
