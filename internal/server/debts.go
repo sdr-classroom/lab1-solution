@@ -86,8 +86,6 @@ func (g Graph) GetCredits(requestedUser common.Username) Credits {
 }
 
 func (g Graph) SimplifyGraph() {
-	//logger := common.GetGlobalLogger()
-
 	// Compute the total amount owed by each user
 	owedAmounts := make(map[common.Username]float32)
 

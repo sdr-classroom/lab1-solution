@@ -11,17 +11,6 @@ import (
 	"debtManager/internal/messages"
 )
 
-/*
-LOW-LEVEL SERVER LOGIC
-Handles connections and such
-*/
-
-/*
-- `sartServer` function, which
-	- Launches tcp/server goroutine
-	- Launches goroutine for message handling: receives input from tcp/server goroutine, calls the correct API on manifs, formats results into a message, and send it back.
-*/
-
 func parseConfig(config Config) Graph {
 	graph := make(Graph)
 	for _, user := range config.Users {
@@ -77,8 +66,12 @@ func handleConn(conn net.Conn, requestHandlerChan chan request) {
 		var msg messages.Message
 		err := decoder.Decode(&msg)
 		if err != nil {
+			if err.Error() == "EOF" {
+				logger.Info("Connection closed by client:", who)
+				break
+			}
 			logger.Error("Error in decoding message ", err)
-			break
+			continue
 		}
 
 		logger.Info("Received a message : ", msg, reflect.TypeOf(msg))

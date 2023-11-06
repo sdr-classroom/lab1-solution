@@ -16,18 +16,6 @@ import (
 	"debtManager/internal/messages"
 )
 
-/*
-CLIENT LOGIC
-*/
-
-/*
-TODO
-- One handler function for each user input. It parses user input into a message, sends it, waits for answer, formats response, and returns it.
-- "setupClient" which
-	- Launches tcp/client goroutine
-	- Launches goroutine for listening to client keyboard input. Forwards to handler function.
-*/
-
 func StartClient(user common.Username, hostname string) {
 	conn, e := net.Dial("tcp", hostname)
 	if e != nil {
