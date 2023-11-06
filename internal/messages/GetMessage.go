@@ -1,6 +1,6 @@
 package messages
 
-import "github.com/olivierlmr/SDR23F/lab1/internal/common"
+import "debtManager/internal/common"
 
 // A GetType enum for getting the different types of messages (debts or credits)
 type GetType int

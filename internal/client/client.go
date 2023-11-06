@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/olivierlmr/SDR23F/lab1/internal/common"
-	"github.com/olivierlmr/SDR23F/lab1/internal/messages"
+	"debtManager/internal/common"
+	"debtManager/internal/messages"
 )
 
 /*
@@ -28,8 +28,8 @@ TODO
 	- Launches goroutine for listening to client keyboard input. Forwards to handler function.
 */
 
-func StartClient(user common.Username, port string) {
-	conn, e := net.Dial("tcp", "127.0.0.1:"+port)
+func StartClient(user common.Username, hostname string) {
+	conn, e := net.Dial("tcp", hostname)
 	if e != nil {
 		log.Fatalf("Could not connect to server: %s", e)
 	}
@@ -136,7 +136,7 @@ func sendGetRequest(args []string, currentUser common.Username, encoder *gob.Enc
 	switch strings.ToLower(args[0]) {
 	case "debts":
 		getType = messages.Debts
-	case "credits":
+	case "credit":
 		getType = messages.Credits
 	default:
 		fmt.Println("Invalid get type")
@@ -177,7 +177,7 @@ func sendGetRequest(args []string, currentUser common.Username, encoder *gob.Enc
 			fmt.Printf("%s: %f\n", username, amount)
 			sum += amount
 		}
-		fmt.Printf("Total: %f\n", sum)
+		fmt.Printf("%v", sum)
 	case messages.ErrorResponse:
 		fmt.Println("Error: ", response.Message)
 	default:

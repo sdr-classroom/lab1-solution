@@ -1,4 +1,4 @@
-# Testing features I should have
+# Test
 # - Debts equal credits for given pair of people
 # - Graph is simplified
 # -
@@ -26,7 +26,28 @@ client_file = ""
 cwd = os.getcwd()
 
 
-def set_main_files(project_path):
+def create_working_dir(project_name):
+    # create a folder in the container folder with the project name
+    working_dir = os.path.join(container_path, "grading_" + project_name)
+    # if (os.path.exists(working_dir)):
+    #     input("Working dir already exists, press enter to delete it.")
+    #     os.system(f'rm -rf {working_dir}')
+    if (not os.path.exists(working_dir)):
+        os.mkdir(working_dir)
+    return working_dir
+
+
+def compile_server(working_dir, server_dir):
+    os.system(
+        f'cd {server_dir} && go build -race -o {os.path.join(working_dir, "server")}')
+
+
+def compile_client(working_dir, client_dir):
+    os.system(
+        f'cd {client_dir} && go build -race -o {os.path.join(working_dir, "client")}')
+
+
+def get_main_dirs(project_path):
     global server_file
     global client_file
 
@@ -35,6 +56,7 @@ def set_main_files(project_path):
     for root, dirs, files in os.walk(project_path):
         for file in files:
             if file.endswith(".go"):
+                print("Found go file: " + file)
                 with open(os.path.join(root, file), 'r') as f:
                     contents = f.read()
                     if 'func main(' in contents:
@@ -48,6 +70,8 @@ def set_main_files(project_path):
 
     if (server_file == "" or client_file == ""):
         # ask user to choose
+        if (len(main_files) == 0):
+            raise Exception("No main files found.")
         print("Please choose the server file:")
         for i, file in enumerate(main_files):
             print(f"{i}: {file}")
@@ -62,6 +86,12 @@ def set_main_files(project_path):
 
     print(f"Server file: {server_file}")
     print(f"Client file: {client_file}")
+
+    # get remove file name from paths
+    server_dir = os.path.dirname(server_file)
+    client_dir = os.path.dirname(client_file)
+
+    return server_dir, client_dir
 
 
 def log(*args):
@@ -251,6 +281,7 @@ def parse_get_cmd_output(output):
 
 
 def run_command_block(clients, cmd_blocks, block):
+    print("Running test command block with commands : ", block.cmds)
     cmd_blocks.append(block)
     if (block.pre):
         block.pre()
@@ -265,7 +296,10 @@ def run_command_block(clients, cmd_blocks, block):
 
 def join_client(username):
     global project_path
-    p = subprocess.Popen(f"go run -race {client_file} {username} localhost:3333",
+    client_dir = os.path.dirname(client_file)
+    cmd = f"{working_dir}/client {username} localhost:3333"
+    # f"go run -race {client_dir} {username} localhost:3333",
+    p = subprocess.Popen(cmd,
                          stdin=subprocess.PIPE,
                          stdout=subprocess.PIPE,
                          shell=True,
@@ -282,7 +316,7 @@ def exit_client(client):
     subprocess.stdin.flush()
     log(f'client {client.username} exited, killing it...')
     # time.sleep(0.1 * sleep_speedup)
-    # subprocess.kill()
+    subprocess.kill()
     # time.sleep(0.1 * sleep_speedup)
 
 
@@ -298,11 +332,11 @@ def parse_outputs(cmd_blocks, clients, context):
         log(f"Got lines for client {client.username}")
         lines = [line.decode().strip() for line in lines]
         per_client_lines[client.username] = lines
-        per_cmd_outputs = '\n'.join(lines).split('>')
+        cmd_outputs = '\n'.join(lines).split('>')
         # filter empty strings
-        per_cmd_outputs = list(
-            filter(lambda x: x != '', [x.strip() for x in per_cmd_outputs]))
-        per_client_outputs[client.username] = per_cmd_outputs
+        cmd_outputs = list(
+            filter(lambda x: x != '', [x.strip() for x in cmd_outputs]))
+        per_client_outputs[client.username] = cmd_outputs
 
     # assign outputs to blocks
     for block in cmd_blocks:
@@ -362,7 +396,7 @@ def assert_debts_equal_constant_block(client, owing_user, owed_user, expected_am
             assert oweds_credits[owing_user] == expected_amount, f"Amount owed by {owing_user} to {owed_user} is {oweds_credits[owing_user]}, but expected {expected_amount}"
         else:
             assert owed_user not in owings_debts, f"User {owing_user} owes no money to {owed_user}, yet {owed_user} is listed as a debt of {owing_user}."
-            assert owing_user not in oweds_credits, f"User {owing_user} owes no money to {owing_user}, yet {owing_user} is listed as a credit of {owed_user}."
+            assert owing_user not in oweds_credits, f"User {owing_user} owes no money to {owed_user}, yet {owing_user} is listed as a credit of {owed_user}."
 
     return CommandBlock(
         client,
@@ -526,10 +560,14 @@ def wait_block(duration):
 
 
 def start_server(config_filename, port):
+    global working_dir
     # use lsof to find the process id of the server listening on the port, then kill it.
     os.system(f'lsof -t -i:{port} | xargs kill')
     log(f"Killed anything listening on {port}")
-    srv_cmd = f"go run -race {server_file} {config_filename}".split()
+    # get server directory
+    server_dir = os.path.dirname(server_file)
+    # srv_cmd = f"go run -race {server_dir} {config_filename}".split()
+    srv_cmd = f"{working_dir}/server {config_filename}".split()
     srv_proc = subprocess.Popen(srv_cmd, cwd=project_path)
     log("Server started, waiting...")
     time.sleep(1 * sleep_speedup)
@@ -641,6 +679,8 @@ def run_test_case(logger, test_case):
         test_case(describe, build_graph, run_command_blocks_wrapper,
                   join_client_wrapper, exit_client_wrapper, set_should_skip_output_parsing)
 
+        time.sleep(3)
+
         for client in connected_clients.values():
             exit_client(client)
         connected_clients.clear()
@@ -671,6 +711,7 @@ def test_case1(describe, build_graph, run_command_blocks, join_client, exit_clie
 
     run_command_blocks(
         pay_block('user1', 10, ['user0']),
+        # wait_block(3),
         assert_debts_equal_constant_block('user0', 'user0', 'user1', 10),
     )
 
@@ -685,6 +726,7 @@ def test_case2(describe, build_graph, run_command_blocks, join_client, exit_clie
 
     run_command_blocks(
         pay_block('user1', 10, ['user0', 'user1']),
+        # wait_block(3),
         assert_debts_equal_constant_block('user0', 'user0', 'user1', 5),
     )
 
@@ -699,6 +741,7 @@ def test_case3(describe, build_graph, run_command_blocks, join_client, exit_clie
 
     run_command_blocks(
         pay_block('user0', 30, ['user0', 'user1', 'user2']),
+        # wait_block(3),
         assert_debts_equal_constant_block('user0', 'user1', 'user0', 10),
         assert_debts_equal_constant_block('user0', 'user2', 'user0', 10),
     )
@@ -713,6 +756,7 @@ def test_case4(describe, build_graph, run_command_blocks, join_client, exit_clie
 
     run_command_blocks(
         pay_block('user1', 10, ['user1']),
+        # wait_block(3),
         assert_debts_equal_constant_block('user0', 'user0', 'user1', 0),
     )
 
@@ -727,6 +771,7 @@ def test_case5(describe, build_graph, run_command_blocks, join_client, exit_clie
     run_command_blocks(
         pay_block('user0', 10, ['user1']),
         pay_block('user1', 10, ['user0']),
+        # wait_block(3),
         assert_debts_equal_constant_block('user0', 'user0', 'user1', 0),
         assert_debts_equal_constant_block('user0', 'user1', 'user0', 0),
     )
@@ -743,7 +788,7 @@ def test_case6(describe, build_graph, run_command_blocks, join_client, exit_clie
     run_command_blocks(
         pay_block('user0', 10, ['user1']),
         pay_block('user1', 15, ['user0']),
-        wait_block(0.5),
+        # wait_block(3),
         assert_debts_equal_constant_block('user0', 'user0', 'user1', 5),
         assert_debts_equal_constant_block('user0', 'user1', 'user0', 0),
     )
@@ -763,8 +808,9 @@ def test_case7(describe, build_graph, run_command_blocks, join_client, exit_clie
         pay_block('user0', 10, ['user1']),
         pay_block('user1', 10, ['user2']),
         pay_block('user2', 10, ['user0']),
-        wait_block(0.7),
+        # wait_block(3),
         get_debts_graph_block('user0', users),
+        # wait_block(3),
         assert_graph_is_simplified_block(),
     )
 
@@ -782,8 +828,9 @@ def test_case8(describe, build_graph, run_command_blocks, join_client, exit_clie
     run_command_blocks(
         pay_block('user0', 10, ['user1']),
         pay_block('user1', 10, ['user2']),
-        wait_block(0.7),
+        # wait_block(3),
         get_debts_graph_block('user0', users),
+        # wait_block(3),
         assert_graph_is_simplified_block(),
         assert_debts_equal_constant_block('user0', 'user2', 'user0', 10),
     )
@@ -814,6 +861,7 @@ def test_case9(describe, build_graph, run_command_blocks, join_client, exit_clie
     run_command_blocks(
         wait_block(1),
         get_debts_graph_block('user0', users),
+        # wait_block(3),
         assert_graph_is_simplified_block(),
     )
 
@@ -894,7 +942,9 @@ def test_case13(describe, build_graph, run_command_blocks, join_client, exit_cli
         run_command_blocks(
             pay_block(client.username, 10, [
                       'user1', 'user2'], log_manual=True),
+            # wait_block(3),
             get_debts_graph_block('user0', users),
+            # wait_block(3),
             assert_graph_is_simplified_block()
         )
     except Exception as e:
@@ -902,6 +952,8 @@ def test_case13(describe, build_graph, run_command_blocks, join_client, exit_cli
             should_skip_output_parsing(True)
         assert type(
             e) == BrokenPipeError, f"Expected BrokenPipeError because client should not have started due to wrong username, instead got {type(e)}"
+
+    time.sleep(3)
 
     try:
         exit_client(client)
@@ -925,7 +977,9 @@ def test_case14(describe, build_graph, run_command_blocks, join_client, exit_cli
     run_command_blocks(
         pay_block("user0", 10, ['user1', 'unknown_user',
                   'user2'], log_manual=True),
+        # wait_block(3),
         get_debts_graph_block('user0', users),
+        # wait_block(3),
         assert_graph_is_simplified_block()
     )
 
@@ -944,7 +998,9 @@ def test_case15(describe, build_graph, run_command_blocks, join_client, exit_cli
 
     run_command_blocks(
         pay_block("user0", -10, ['user1', 'user2'], log_manual=True),
+        # wait_block(3),
         get_debts_graph_block('user0', users),
+        # wait_block(3),
         assert_graph_is_simplified_block()
     )
 
@@ -964,7 +1020,9 @@ def test_case16(describe, build_graph, run_command_blocks, join_client, exit_cli
 
     run_command_blocks(
         pay_block("user0", 0, ['user1', 'user2']),
+        # wait_block(3),
         get_debts_graph_block('user0', users),
+        # wait_block(3),
         assert_graph_is_simplified_block()
     )
 
@@ -983,7 +1041,9 @@ def test_case17(describe, build_graph, run_command_blocks, join_client, exit_cli
 
     run_command_blocks(
         wrong_command_block('user0', 'unknown_command', True),
+        # wait_block(3),
         get_debts_graph_block('user0', users),
+        # wait_block(3),
         assert_graph_is_simplified_block()
     )
 
@@ -1014,32 +1074,54 @@ def run_all_tests(output_filename):
     logger.save_logs(output_filename)
 
 
+working_dir = None
+
+
 def test_all_submissions(container_path):
+    global working_dir
+
     always_skip = [
         "debtManager",
         "peronetti",
-    ]    
+        "bogale",
+        "fazlija_praz",
+        "escher",
+        "baume_gillioz"
+    ]
 
     global project_path
     # iterate over all folders in the container
-    for folder in os.listdir(container_path):
+    for project_name in os.listdir(container_path):
+        working_dir = None
+
+        if ("grading_" in project_name):
+            continue
+
         while True:
-            folder_path = os.path.join(container_path, folder)
+            project_dir = os.path.join(container_path, project_name)
             should_skip = False
             for to_skip in always_skip:
-                if to_skip in folder_path:
-                    print(f"Always skipping {folder_path}...")
+                if to_skip in project_dir:
+                    print(f"Always skipping {project_name}...")
                     should_skip = True
             if should_skip:
                 break
-            if not os.path.isdir(folder_path):
+            if not os.path.isdir(project_dir):
                 break
-            print(f"Testing {folder_path}...")
-            project_path = folder_path
-            set_main_files(folder_path)
+
+            print(f"Testing {project_name}...")
+
+            working_dir = create_working_dir(project_name)
+
+            server_dir, client_dir = get_main_dirs(project_dir)
+
+            compile_server(working_dir, server_dir)
+            compile_client(working_dir, client_dir)
+
+            project_path = project_dir
             # output file in container folder
             output_filename = os.path.join(
-                container_path, f"output_{folder}.txt")
+                container_path, f"output_{project_name}.txt")
             if os.path.exists(output_filename):
                 print("Output files already exist for that submission, skipping it?")
                 answer = input("y/[n]")

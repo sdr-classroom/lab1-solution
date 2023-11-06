@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"os"
 
-	"github.com/olivierlmr/SDR23F/lab1/internal/server"
+	"debtManager/internal/server"
 )
 
 func main() {

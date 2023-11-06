@@ -7,8 +7,8 @@ import (
 	"net"
 	"reflect"
 
-	"github.com/olivierlmr/SDR23F/lab1/internal/common"
-	"github.com/olivierlmr/SDR23F/lab1/internal/messages"
+	"debtManager/internal/common"
+	"debtManager/internal/messages"
 )
 
 /*
@@ -101,9 +101,12 @@ type request struct {
 }
 
 func handleRequests(requests chan request, graph Graph) {
-	//logger := common.GetGlobalLogger()
+	logger := common.GetGlobalLogger()
+
+	logger.Info("Starting request handler")
 
 	for req := range requests {
+		logger.Info("Handling request", req.message, reflect.TypeOf(req.message))
 		switch req.message.(type) {
 		case messages.GetRequest:
 			request := req.message.(messages.GetRequest)

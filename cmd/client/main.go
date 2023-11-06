@@ -3,8 +3,8 @@ package main
 import (
 	"os"
 
-	"github.com/olivierlmr/SDR23F/lab1/internal/client"
-	"github.com/olivierlmr/SDR23F/lab1/internal/common"
+	"debtManager/internal/client"
+	"debtManager/internal/common"
 )
 
 func main() {

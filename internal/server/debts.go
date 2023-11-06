@@ -3,7 +3,7 @@ package server
 import (
 	"fmt"
 
-	"github.com/olivierlmr/SDR23F/lab1/internal/common"
+	"debtManager/internal/common"
 )
 
 type Debt struct {
@@ -29,6 +29,8 @@ func (g Graph) HasAllUsers(users []common.Username) bool {
 func (g Graph) Pay(owedUser common.Username, owingUsers []common.Username, amount float32) error {
 	logger := common.GetGlobalLogger()
 
+	amountPerOwing := amount / float32(len(owingUsers))
+
 	// Remove owed from owing users
 	for i := 0; i < len(owingUsers); i++ {
 		if owingUsers[i] == owedUser {
@@ -46,7 +48,6 @@ func (g Graph) Pay(owedUser common.Username, owingUsers []common.Username, amoun
 		return fmt.Errorf("amount must be positive")
 	}
 
-	amountPerOwing := amount / float32(len(owingUsers))
 	for _, owingUser := range owingUsers {
 		owingUserDebts, ok := g[owingUser]
 		if !ok {

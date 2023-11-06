@@ -1,4 +1,4 @@
-module github.com/olivierlmr/SDR23F/lab1
+module debtManager
 
 go 1.21.0
 

@@ -1,6 +1,6 @@
 package server
 
-import "github.com/olivierlmr/SDR23F/lab1/internal/common"
+import "debtManager/internal/common"
 
 type Config struct {
 	Debug bool          `json:"debug"`
